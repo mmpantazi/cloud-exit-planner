@@ -3,13 +3,16 @@ import calendar
 from dataclasses import dataclass, field
 from datetime import date
 
+from .catalog import DATA_CATEGORIES, SERVICES
 from .pricing import DATA_ACT_FULL_DATE, FREE_GB, PROVIDER_NAMES, WAIVER, list_price
 
 DAYS_BY_LOCKIN = {1: 0.5, 2: 2.0, 3: 5.0}
+MAX_RESOURCE_FACTOR = 4.0
 EFFORT_SPREAD = (0.6, 1.6)
 NOTICE_MONTHS = 2
 TRANSITION_DAYS = 30
 RETRIEVAL_DAYS = 30
+EXTENSION_MONTHS = 7
 
 
 def add_months(d: date, months: int) -> date:
@@ -33,6 +36,7 @@ class Timeline:
     latest_start: date
     transition_end: date
     retrieval_end: date
+    extended_end: date
     full_ban: date
     start_after_ban: bool
     earliest_notice_for_ban: date
@@ -51,6 +55,7 @@ class Plan:
     lockin_label: str = ""
     timeline: Timeline | None = None
     day_rate: float = 0.0
+    warnings: list = field(default_factory=list)
 
 
 def parse_date(text: str) -> date:
@@ -62,7 +67,8 @@ def build_timeline(notice: date) -> Timeline:
     full = parse_date(DATA_ACT_FULL_DATE)
     transition_end = date.fromordinal(latest_start.toordinal() + TRANSITION_DAYS)
     retrieval_end = date.fromordinal(transition_end.toordinal() + RETRIEVAL_DAYS)
-    return Timeline(notice, latest_start, transition_end, retrieval_end, full,
+    extended_end = add_months(latest_start, EXTENSION_MONTHS)
+    return Timeline(notice, latest_start, transition_end, retrieval_end, extended_end, full,
                     latest_start >= full, add_months(full, -NOTICE_MONTHS))
 
 
@@ -79,6 +85,22 @@ def assign_sizes(findings, sizes):
     return out
 
 
+def size_warnings(findings, sizes):
+    """Messages for sizes that name nothing the scan found, so they do not vanish silently."""
+    used = {c for f in findings.values() if (c := f.service.data)}
+    out = []
+    for name in sizes:
+        if name in SERVICES:
+            if name not in findings:
+                out.append(f"--size {name}: that service was not found in the scan, so the size is ignored.")
+        elif name in DATA_CATEGORIES:
+            if name not in used:
+                out.append(f"--size {name}: no {name} service was found in the scan, so the size is ignored.")
+        else:
+            out.append(f"--size {name}: unknown name. Use a category ({', '.join(DATA_CATEGORIES)}) or a service key such as aws_s3.")
+    return out
+
+
 def lockin_label(score: int) -> str:
     return "low" if score < 35 else "medium" if score < 65 else "high"
 
@@ -90,6 +112,7 @@ def make_plan(result, sizes=None, monthly_bill=0.0, parallel_months=1.0,
     plan.services = sorted(result.findings.values(), key=lambda f: (-f.service.lockin, f.service_key))
     by_service = assign_sizes(result.findings, sizes)
     plan.sized = bool(by_service)
+    plan.warnings = size_warnings(result.findings, sizes)
 
     per_provider = {}
     for key, gb in by_service.items():
@@ -101,7 +124,7 @@ def make_plan(result, sizes=None, monthly_bill=0.0, parallel_months=1.0,
 
     base = 0.0
     for f in plan.services:
-        base += DAYS_BY_LOCKIN[f.service.lockin] * (1 + 0.25 * (max(f.resources, 1) - 1))
+        base += DAYS_BY_LOCKIN[f.service.lockin] * min(MAX_RESOURCE_FACTOR, 1 + 0.25 * (max(f.resources, 1) - 1))
     plan.effort_days = (round(base * EFFORT_SPREAD[0], 1), round(base * EFFORT_SPREAD[1], 1))
     plan.effort_cost = (round(plan.effort_days[0] * day_rate), round(plan.effort_days[1] * day_rate))
     plan.parallel_cost = round(monthly_bill * parallel_months, 2)

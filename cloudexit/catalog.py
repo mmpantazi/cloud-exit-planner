@@ -23,6 +23,8 @@ def _s(key, provider, name, category, lockin, data, alternatives, *steps):
     return Service(key, provider, name, category, lockin, data, alternatives, tuple(steps))
 
 
+DATA_CATEGORIES = ("storage", "database")
+
 SERVICES = {s.key: s for s in [
     _s("aws_s3", "aws", "Amazon S3", "storage", 2, "storage", "Hetzner/Scaleway/OVH/Exoscale Object Storage, MinIO, Garage",
        "List buckets, sizes, versioning and lifecycle rules; decide whether old versions move too",
@@ -205,4 +207,36 @@ RISK_PATTERNS = [
     (r"\b(reserved_instance|savings_plan|reservation)\b", "Reserved/committed capacity found: remaining commitment is usually owed even after you leave. It is not a Data Act switching charge."),
     (r"\bmulti_az\b\s*=\s*true", "Multi-AZ/HA databases: the target needs a comparable replica setup or the cut-over loses redundancy."),
     (r"\bkms_key_id\b|\bkms_key_name\b|\bkms_master_key_id\b", "Provider-managed KMS keys: data encrypted with them is only readable after decrypting inside the provider. Export plaintext (or re-encrypt) before closing the account."),
+]
+
+# CloudFormation "AWS::<Namespace>::" and Bicep/ARM "Microsoft.<Namespace>/" prefixes. None = plain networking.
+CFN_NAMESPACES = {
+    "S3": "aws_s3", "Glacier": "aws_s3", "EFS": "aws_ebs", "FSx": "aws_ebs", "RDS": "aws_rds", "DynamoDB": "aws_dynamodb",
+    "Lambda": "aws_lambda", "ApiGateway": "aws_apigw", "ApiGatewayV2": "aws_apigw", "SQS": "aws_sqs_sns", "SNS": "aws_sqs_sns",
+    "Events": "aws_sqs_sns", "StepFunctions": "aws_sqs_sns", "ECS": "aws_ecs_eks", "EKS": "aws_ecs_eks", "ECR": "aws_ecs_eks",
+    "EC2": None, "AutoScaling": "aws_ec2", "ElasticLoadBalancingV2": "aws_elb_cdn", "ElasticLoadBalancing": "aws_elb_cdn",
+    "CloudFront": "aws_elb_cdn", "Route53": "aws_elb_cdn", "CertificateManager": "aws_elb_cdn", "WAFv2": "aws_elb_cdn",
+    "IAM": "aws_iam_cognito", "Cognito": "aws_iam_cognito", "SecretsManager": "aws_iam_cognito", "KMS": "aws_iam_cognito",
+    "SSM": "aws_iam_cognito", "Logs": "aws_cloudwatch", "CloudWatch": "aws_cloudwatch", "ElastiCache": "aws_cache",
+    "SageMaker": "aws_ml", "Bedrock": "aws_ml",
+}
+BICEP_NAMESPACES = {
+    "Storage": "az_blob", "Sql": "az_sql", "DBforPostgreSQL": "az_sql", "DBforMySQL": "az_sql", "DocumentDB": "az_cosmos",
+    "ServiceBus": "az_servicebus", "EventHub": "az_servicebus", "EventGrid": "az_servicebus", "ContainerService": "az_aks_vm",
+    "Compute": "az_aks_vm", "Web": "az_aks_vm", "App": "az_aks_vm", "ContainerRegistry": "az_aks_vm", "Network": None,
+    "Cdn": "az_network", "KeyVault": "az_identity", "ManagedIdentity": "az_identity", "Authorization": "az_identity",
+    "Insights": "az_monitor", "OperationalInsights": "az_monitor", "Cache": "az_redis", "CognitiveServices": "az_ml",
+    "MachineLearningServices": "az_ml",
+}
+
+# Single-line signals in YAML/JSON/Bicep files (Kubernetes manifests, Helm values, serverless.yml, CI files).
+KEYWORD_RULES = [
+    (r"\bebs\.csi\.aws\.com\b|kubernetes\.io/aws-ebs", "aws", "aws_ebs", "AWS EBS storage class"),
+    (r"alb\.ingress\.kubernetes\.io|service\.beta\.kubernetes\.io/aws-load-balancer", "aws", "aws_elb_cdn", "AWS load-balancer annotation"),
+    (r"eks\.amazonaws\.com/role-arn", "aws", "aws_iam_cognito", "IAM role for service account"),
+    (r"disk\.csi\.azure\.com|kubernetes\.io/azure-disk|file\.csi\.azure\.com", "azure", "az_blob", "Azure disk/file storage class"),
+    (r"azure\.workload\.identity/", "azure", "az_identity", "Azure workload identity"),
+    (r"service\.beta\.kubernetes\.io/azure-", "azure", "az_network", "Azure load-balancer annotation"),
+    (r"pd\.csi\.storage\.gke\.io|kubernetes\.io/gce-pd", "gcp", "gcp_disk", "GCE persistent disk class"),
+    (r"iam\.gke\.io/gcp-service-account|cloud\.google\.com/[a-z-]+", "gcp", "gcp_gke_vm", "GKE annotation"),
 ]

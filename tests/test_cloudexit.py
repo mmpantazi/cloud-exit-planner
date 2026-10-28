@@ -6,6 +6,7 @@ from datetime import date
 
 from cloudexit.cli import main, parse_sizes
 from cloudexit.estimate import add_months, build_timeline, make_plan
+from cloudexit.letter import drafts
 from cloudexit.pricing import list_price
 from cloudexit.report import to_json, to_markdown
 from cloudexit.scanner import scan
@@ -84,6 +85,32 @@ class ScannerTests(unittest.TestCase):
         self.assertEqual(len(r.risks), 1)
 
 
+class TemplateScannerTests(unittest.TestCase):
+    def test_cloudformation(self):
+        r = scan(project({"cfn.yaml": "Resources:\n  B:\n    Type: AWS::S3::Bucket\n  V:\n    Type: AWS::EC2::VPC\n"}))
+        self.assertEqual(set(r.findings), {"aws_s3"})
+        self.assertIn("aws", r.providers)
+
+    def test_bicep_and_networking(self):
+        r = scan(project({"main.bicep": "resource a 'Microsoft.Storage/storageAccounts@2023-01-01' = {}\nresource n 'Microsoft.Network/virtualNetworks@2023-01-01' = {}\n"}))
+        self.assertEqual(set(r.findings), {"az_blob"})
+
+    def test_kubernetes_annotations(self):
+        r = scan(project({"k/sc.yaml": "provisioner: ebs.csi.aws.com\nmetadata:\n  annotations:\n    eks.amazonaws.com/role-arn: arn:x\n"}))
+        self.assertEqual(set(r.findings), {"aws_ebs", "aws_iam_cognito"})
+
+    def test_serverless_framework(self):
+        r = scan(project({"serverless.yml": "service: x\nprovider:\n  name: aws\n  runtime: nodejs20.x\n"}))
+        self.assertIn("aws_lambda", r.findings)
+
+    def test_serverless_other_provider_ignored(self):
+        r = scan(project({"serverless.yml": "provider:\n  name: azure\n"}))
+        self.assertEqual(r.findings, {})
+
+    def test_plain_yaml_ignored(self):
+        self.assertEqual(scan(project({"ci.yml": "name: build\non: push\njobs:\n  t:\n    runs-on: ubuntu-latest\n"})).findings, {})
+
+
 class PricingTests(unittest.TestCase):
     def test_free_allowance(self):
         self.assertEqual(list_price("aws", 100), 0)
@@ -100,6 +127,10 @@ class EstimateTests(unittest.TestCase):
     def test_add_months_clamps(self):
         self.assertEqual(add_months(date(2026, 12, 31), 2), date(2027, 2, 28))
 
+    def test_extended_timeline_seven_months(self):
+        tl = build_timeline(date(2026, 10, 28))
+        self.assertEqual(tl.extended_end, date(2027, 7, 28))
+
     def test_timeline_ban_date(self):
         early = build_timeline(date(2026, 10, 28))
         self.assertFalse(early.start_after_ban)
@@ -113,6 +144,10 @@ class EstimateTests(unittest.TestCase):
         self.assertEqual(plan.egress[0].gb, 1200)
         plan = make_plan(r, {"aws_s3": 500, "storage": 1000})
         self.assertEqual(plan.egress[0].gb, 500)
+
+    def test_effort_per_service_is_capped(self):
+        huge = make_plan(scan(project({"a.tf": 'resource "aws_instance" "i" {\n count = 500\n}\n'})))
+        self.assertEqual(huge.effort_days[1], round(0.5 * 4 * 1.6, 1))
 
     def test_lockin_score_bounds(self):
         low = make_plan(scan(project({"a.tf": 'resource "aws_instance" "i" {}\n'})))
@@ -137,7 +172,7 @@ class ReportTests(unittest.TestCase):
 
     def test_unsized_report_shows_per_tb(self):
         md = to_markdown(self.result, make_plan(self.result))
-        self.assertIn("No data sizes were given", md)
+        self.assertIn("No usable data sizes", md)
 
     def test_romanian(self):
         md = to_markdown(self.result, self.plan, "ro")
@@ -153,6 +188,37 @@ class ReportTests(unittest.TestCase):
         r = scan(project({"README.md": "hi"}))
         md = to_markdown(r, make_plan(r))
         self.assertIn("No vendor-specific services", md)
+
+
+class WarningTests(unittest.TestCase):
+    def test_unknown_and_unmatched_sizes_warn(self):
+        r = scan(project({"a.tf": 'resource "aws_instance" "i" {}\n'}))
+        plan = make_plan(r, {"storage": 100, "databse": 5, "aws_s3": 3})
+        text = " ".join(plan.warnings)
+        self.assertIn("storage", text)
+        self.assertIn("databse: unknown", text)
+        self.assertIn("aws_s3", text)
+        self.assertFalse(plan.sized)
+        self.assertIn("Warning", to_markdown(r, plan))
+
+    def test_valid_sizes_no_warning(self):
+        r = scan(DEMO)
+        self.assertEqual(make_plan(r, {"storage": 10}).warnings, [])
+
+
+class LetterTests(unittest.TestCase):
+    def test_letter_per_provider(self):
+        r = scan(project({"a.tf": 'resource "aws_s3_bucket" "b" {}\nresource "google_storage_bucket" "g" {}\n'}))
+        text = drafts(make_plan(r), date(2026, 11, 12))
+        self.assertIn("To: AWS", text)
+        self.assertIn("To: Google Cloud", text)
+        self.assertIn("Amazon S3", text)
+        self.assertIn("2026-11-12", text)
+
+    def test_letter_ro_and_cli(self):
+        self.assertEqual(main([DEMO, "--letter", "--lang", "ro", "-o", os.devnull]), 0)
+        with self.assertRaises(SystemExit):
+            main([project({"x.txt": ""}), "--letter"])
 
 
 class CliTests(unittest.TestCase):

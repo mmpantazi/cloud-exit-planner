@@ -19,7 +19,7 @@ LABELS = {
         "cols": "| Service | Lock-in | Resources | Found in |",
         "lockin": "Lock-in score: **{score}/100 ({label})**. 0 means everything is drop-in elsewhere, 100 means everything is proprietary.",
         "egress": "Data leaving the provider",
-        "unsized": "No data sizes were given, so no total is computed. Pass `--size storage=500 --size database=80` (GB) to size it. Cost of moving 1 TB out at list price:",
+        "unsized": "No usable data sizes were given, so no total is computed. Pass `--size storage=500 --size database=80` (GB) to size it. Cost of moving 1 TB out at list price:",
         "egcols": "| Provider | Data (GB) | List price | Vendor leave-waiver | After {date} |",
         "egwaiver": "Waiver conditions: ",
         "egnote": "List price is what an ordinary download costs. The waiver column assumes you meet the provider's leave conditions. From {date} the Data Act bans switching charges for the one-off move, but traffic during parallel use of two providers may still be charged at cost.",
@@ -36,6 +36,8 @@ LABELS = {
         "tl_start": "Provider must start the switch by: {d}",
         "tl_trans": "Transition period ends (30 days): {d}",
         "tl_retr": "Retrieval period ends (at least 30 days later): {d}",
+        "tl_ext": "If the provider shows the 30 days are technically unfeasible it must tell you within 14 working days and propose a period of up to 7 months: the switch could then run until {d}.",
+        "cash": "Waivers are normally granted as a credit after you have left completely (all subscriptions cancelled), so you may have to pay the egress first. Termination fees, committed spend and normal service fees are not switching charges.",
         "tl_before": "Your switch would start before {full}, when switching charges are still allowed at the provider's direct cost. If waiting is acceptable, send the request on or after **{earliest}** so the process starts on or after {full}.",
         "tl_after": "The switch would start on or after {full}, when switching charges for the one-off move are banned.",
         "risks": "Things that make exit harder",
@@ -49,7 +51,7 @@ LABELS = {
         "cols": "| Serviciu | Dependență | Resurse | Găsit în |",
         "lockin": "Scor de dependență (lock-in): **{score}/100 ({label})**. 0 = totul se mută direct, 100 = totul este proprietar.",
         "egress": "Date care ies de la furnizor",
-        "unsized": "Nu s-au dat dimensiuni de date, deci nu se calculează un total. Folosiți `--size storage=500 --size database=80` (GB). Costul mutării a 1 TB la preț de listă:",
+        "unsized": "Nu s-au dat dimensiuni utilizabile de date, deci nu se calculează un total. Folosiți `--size storage=500 --size database=80` (GB). Costul mutării a 1 TB la preț de listă:",
         "egcols": "| Furnizor | Date (GB) | Preț de listă | Scutire la plecare | După {date} |",
         "egwaiver": "Condiții de scutire: ",
         "egnote": "Prețul de listă este costul unei descărcări obișnuite. Coloana de scutire presupune că îndepliniți condițiile furnizorului. Din {date} Actul privind datele interzice taxele pentru mutarea unică, dar traficul din timpul utilizării în paralel poate fi taxat la cost.",
@@ -66,6 +68,8 @@ LABELS = {
         "tl_start": "Furnizorul trebuie să înceapă schimbarea până la: {d}",
         "tl_trans": "Se termină perioada de tranziție (30 de zile): {d}",
         "tl_retr": "Se termină perioada de recuperare (cel puțin 30 de zile mai târziu): {d}",
+        "tl_ext": "Dacă furnizorul arată că cele 30 de zile sunt imposibile tehnic, trebuie să vă anunțe în 14 zile lucrătoare și să propună o perioadă de până la 7 luni: schimbarea ar putea dura până la {d}.",
+        "cash": "Scutirile se acordă de obicei ca nota de credit după ce ați plecat complet (toate abonamentele anulate), deci poate fi nevoie să plătiți mai întâi traficul. Penalitățile de reziliere, consumul angajat și tarifele normale nu sunt taxe de schimbare.",
         "tl_before": "Schimbarea ar începe înainte de {full}, când taxele de schimbare sunt încă permise la costul direct al furnizorului. Dacă puteți aștepta, trimiteți cererea în sau după **{earliest}**, ca procesul să înceapă în sau după {full}.",
         "tl_after": "Schimbarea ar începe în sau după {full}, când taxele pentru mutarea unică sunt interzise.",
         "risks": "Lucruri care îngreunează ieșirea",
@@ -80,10 +84,15 @@ def money(x):
     return f"€{x:,.0f}"
 
 
+WEAK_KINDS = {"sdk", "env-key", "endpoint", "manifest", "compose-image", "dockerfile-from"}
+
+
 def _where(f):
     files = sorted({e.file for e in f.evidence})
     shown = ", ".join(f"`{x}`" for x in files[:3])
-    return shown + (f" +{len(files) - 3}" if len(files) > 3 else "")
+    more = f" +{len(files) - 3}" if len(files) > 3 else ""
+    weak = " (indirect: SDK/env/image only)" if all(e.kind in WEAK_KINDS for e in f.evidence) else ""
+    return shown + more + weak
 
 
 def totals(plan, fx):
@@ -100,12 +109,13 @@ def to_markdown(result, plan, lang="en", fx=0.92):
     out = [f"# {T['title_report']}", ""]
     provs = ", ".join(provider_name(p) for p in sorted(result.providers)) or "-"
     out += [L["scanned"].format(n=result.files_scanned, root=result.root, providers=provs), ""]
+    out += [f"> Warning: {w}" for w in plan.warnings] + ([""] if plan.warnings else [])
     if not plan.services:
         out += [L["none"], ""]
     else:
         out += [f"## {L['services']}", "", L["cols"], "|---|---|---|---|"]
         for f in plan.services:
-            out.append(f"| {f.service.name} | {LOCKIN_WORD[lang][f.service.lockin]} | {max(f.resources, len(f.evidence) if f.resources == 0 else f.resources)} | {_where(f)} |")
+            out.append(f"| {f.service.name} | {LOCKIN_WORD[lang][f.service.lockin]} | {f.resources or '-'} | {_where(f)} |")
         out += ["", L["lockin"].format(score=plan.lockin_score, label=LEVEL_WORD[lang][plan.lockin_label]), ""]
 
         out += [f"## {L['egress']}", ""]
@@ -113,7 +123,7 @@ def to_markdown(result, plan, lang="en", fx=0.92):
             out += [L["egcols"].format(date=full), "|---|---|---|---|---|"]
             for e in plan.egress:
                 out.append(f"| {provider_name(e.provider)} | {e.gb:,.0f} | {money(e.list_cost * fx)} | €0 | €0 |")
-            out += [""] + [f"- {L['egwaiver']}{e.waiver}" for e in plan.egress] + ["", L["egnote"].format(date=full), ""]
+            out += [""] + [f"- {L['egwaiver']}{e.waiver}" for e in plan.egress] + ["", L["egnote"].format(date=full), "", L["cash"], ""]
             t = totals(plan, fx)
             out += [f"## {L['total']}", "", L["tcols"], "|---|---|---|",
                     f"| {L['t_egress']} | {money(t['egress'][0])} | {money(t['egress'][1])} |",
@@ -136,7 +146,7 @@ def to_markdown(result, plan, lang="en", fx=0.92):
         out += [f"## {L['timing']}", "", f"- {L['tl_notice'].format(d=tl.notice)}", f"- {L['tl_start'].format(d=tl.latest_start)}",
                 f"- {L['tl_trans'].format(d=tl.transition_end)}", f"- {L['tl_retr'].format(d=tl.retrieval_end)}", ""]
         key = "tl_after" if tl.start_after_ban else "tl_before"
-        out += [L[key].format(full=full, earliest=tl.earliest_notice_for_ban), ""]
+        out += [L[key].format(full=full, earliest=tl.earliest_notice_for_ban), "", L["tl_ext"].format(d=tl.extended_end), ""]
 
     if result.risks:
         out += [f"## {L['risks']}", ""]
@@ -174,6 +184,6 @@ def to_json(result, plan, fx=0.92):
         "lockin_score": plan.lockin_score,
         "egress": [{"provider": e.provider, "gb": e.gb, "list_cost_usd": e.list_cost, "per_tb_list_usd": e.per_tb_list} for e in plan.egress],
         "effort_days": plan.effort_days, "totals_eur": {k: v for k, v in t.items()},
-        "timeline": None if not plan.timeline else {k: str(v) for k, v in vars(plan.timeline).items()},
+        "warnings": plan.warnings, "timeline": None if not plan.timeline else {k: str(v) for k, v in vars(plan.timeline).items()},
         "risks": [{"file": f, "line": l, "resource": r, "message": m} for f, l, r, m in result.risks],
     }, indent=2, default=str)

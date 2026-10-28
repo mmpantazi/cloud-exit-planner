@@ -4,6 +4,7 @@ import sys
 from datetime import date
 
 from .checklist import LANGS
+from .letter import drafts
 from .estimate import make_plan, parse_date
 from .report import to_json, to_markdown
 from .scanner import scan
@@ -36,6 +37,7 @@ def build_parser():
     p.add_argument("--today", metavar="YYYY-MM-DD", help=argparse.SUPPRESS)
     p.add_argument("--lang", choices=LANGS, default="en", help="report language (en, ro)")
     p.add_argument("--format", choices=("md", "json"), default="md")
+    p.add_argument("--letter", action="store_true", help="print a draft switching-request letter per provider instead of the report")
     p.add_argument("-o", "--output", help="write the report to this file instead of stdout")
     return p
 
@@ -52,7 +54,14 @@ def main(argv=None):
         raise SystemExit(f"path not found: {args.path}")
     result = scan(args.path)
     plan = make_plan(result, sizes, args.monthly_bill, args.parallel_months, args.commitment, args.day_rate, notice)
-    text = to_json(result, plan, args.fx) if args.format == "json" else to_markdown(result, plan, args.lang, args.fx)
+    if args.letter:
+        if not plan.services:
+            raise SystemExit("no provider services found, nothing to write a letter about")
+        text = drafts(plan, notice, args.lang)
+    elif args.format == "json":
+        text = to_json(result, plan, args.fx)
+    else:
+        text = to_markdown(result, plan, args.lang, args.fx)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(text + "\n")

@@ -31,7 +31,7 @@ TEXT = {
             "Set up monitoring and backups on the target before any production data lands there.",
         ],
         "steps3": [
-            "The provider must support the transition for up to 30 days (extendable only if technically unfeasible, Art. 25).",
+            "The provider must support the transition for up to 30 days. If it is technically unfeasible the provider must say so within 14 working days and propose a period of up to 7 months (Art. 25).",
             "Copy data in bulk first, then sync deltas; freeze writes only for the last delta.",
             "Keep the old environment running in parallel until the new one has served real traffic. Parallel use may be charged at cost (Art. 34).",
             "For infrastructure services (IaaS) the provider must help reach functional equivalence on the target (Art. 30).",
@@ -81,7 +81,7 @@ TEXT = {
             "Configurați monitorizarea și copiile de rezervă pe destinație înainte să ajungă date de producție.",
         ],
         "steps3": [
-            "Furnizorul trebuie să sprijine tranziția până la 30 de zile (prelungire doar dacă este tehnic imposibil, art. 25).",
+            "Furnizorul trebuie să sprijine tranziția până la 30 de zile. Dacă este tehnic imposibil, trebuie să anunțe în 14 zile lucrătoare și să propună o perioadă de până la 7 luni (art. 25).",
             "Copiați mai întâi datele în bloc, apoi sincronizați diferențele; blocați scrierile doar pentru ultima diferență.",
             "Păstrați vechiul mediu în paralel până când noul mediu a servit trafic real. Utilizarea în paralel poate fi taxată la cost (art. 34).",
             "Pentru servicii de infrastructură (IaaS), furnizorul trebuie să ajute la echivalența funcțională pe destinație (art. 30).",

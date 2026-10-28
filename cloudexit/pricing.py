@@ -14,9 +14,9 @@ TIERS = {
 FREE_GB = {"aws": 100, "azure": 100, "gcp": 0}
 
 WAIVER = {
-    "aws": "AWS waives transfer-out fees for customers who leave: account in good standing, move finished within 60 days, remaining data deleted; large moves need a support request for credits.",
-    "azure": "Azure waives internet egress for customers who leave or move to another provider: request through support, finish within the stated window.",
-    "gcp": "Google Cloud waives data transfer fees for customers who leave: request through support, finish within the stated window.",
+    "aws": "AWS: waives transfer-out fees for customers who leave. Account in good standing, move finished within 60 days, remaining data and workloads deleted; large moves need a support request for credits.",
+    "azure": "Azure: waives internet egress for Azure Storage data when you leave. Tell Microsoft in advance, get approval, cancel all Azure subscriptions; you pay first and request a credit afterwards. Sources disagree on the 60-day window.",
+    "gcp": "Google Cloud: waives exit transfer fees. File a formal exit request, finish within 60 days and terminate the agreement; the fee is credited on the final invoice and Google may audit the data movement. Partial exits: ask support.",
 }
 PROVIDER_NAMES = {"aws": "AWS", "azure": "Microsoft Azure", "gcp": "Google Cloud"}
 DATA_ACT_FULL_DATE = "2027-01-12"

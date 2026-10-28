@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from .catalog import (ENDPOINT_RULES, ENV_KEY_RULES, IMAGE_RULES, RISK_PATTERNS,
+from .catalog import (BICEP_NAMESPACES, CFN_NAMESPACES, ENDPOINT_RULES, KEYWORD_RULES, ENV_KEY_RULES, IMAGE_RULES, RISK_PATTERNS,
                       SDK_RULES, SERVICES, TERRAFORM_RULES)
 
 SKIP_DIRS = {".git", "node_modules", ".terraform", ".venv", "venv", "__pycache__", "vendor", "dist", "build"}
@@ -168,6 +168,41 @@ def scan_env_like(result, rel, text):
             result.add(hit[1], rel, n, "endpoint", f"{key} points at a {SERVICES[hit[1]].name} endpoint", 0)
 
 
+CFN_RE = re.compile(r"\bAWS::([A-Za-z0-9]+)::([A-Za-z0-9]+)")
+BICEP_RE = re.compile(r"Microsoft\.([A-Za-z]+)/([A-Za-z/]+)")
+SERVERLESS_RE = re.compile(r"^provider:\s*\n(?:[ \t]+.*\n)*?[ \t]+name:\s*aws\b", re.M)
+
+
+def scan_templates(result, rel, text):
+    """CloudFormation, Bicep/ARM, Kubernetes and serverless files, matched line by line."""
+    seen = set()
+    for n, raw in enumerate(text.splitlines(), 1):
+        if raw.lstrip().startswith(("#", "//")):
+            continue
+        for m in CFN_RE.finditer(raw):
+            ns, kind = m.groups()
+            if ns in CFN_NAMESPACES and CFN_NAMESPACES[ns]:
+                result.add(CFN_NAMESPACES[ns], rel, n, "cloudformation", f"AWS::{ns}::{kind}")
+            elif ns in CFN_NAMESPACES:
+                result.providers.add("aws")
+            else:
+                result.add("aws_other", rel, n, "cloudformation", f"AWS::{ns}::{kind}")
+        for m in BICEP_RE.finditer(raw):
+            ns, kind = m.groups()
+            if ns in BICEP_NAMESPACES and BICEP_NAMESPACES[ns]:
+                result.add(BICEP_NAMESPACES[ns], rel, n, "bicep-arm", f"Microsoft.{ns}/{kind}")
+            elif ns in BICEP_NAMESPACES:
+                result.providers.add("azure")
+            elif ns not in ("Resources", "Management", "Features"):
+                result.add("az_other", rel, n, "bicep-arm", f"Microsoft.{ns}/{kind}")
+        for pattern, provider, key, label in KEYWORD_RULES:
+            if re.search(pattern, raw) and (key, label) not in seen:
+                seen.add((key, label))
+                result.add(key, rel, n, "manifest", label, 0)
+    if SERVERLESS_RE.search(text):
+        result.add("aws_lambda", rel, 1, "serverless", "serverless framework provider aws")
+
+
 def scan_dockerfile(result, rel, text):
     for n, raw in enumerate(text.splitlines(), 1):
         m = FROM_RE.match(raw)
@@ -222,6 +257,10 @@ def classify(name):
         return "requirements"
     if low == "package.json":
         return "package"
+    if low.endswith((".yml", ".yaml", ".bicep", ".template")):
+        return "template"
+    if low.endswith(".json") and re.match(r"(template|cfn|cloudformation|stack|main\.bicep)", low):
+        return "template"
     return None
 
 
@@ -251,8 +290,10 @@ def scan(root):
             scan_tfstate(result, path, rel, text)
         elif kind == "dockerfile":
             scan_dockerfile(result, rel, text)
-        elif kind in ("compose", "env"):
+        elif kind in ("compose", "env", "template"):
             scan_env_like(result, rel, text)
+            if kind != "env":
+                scan_templates(result, rel, text)
         elif kind == "requirements":
             scan_requirements(result, rel, text)
         elif kind == "package":
