@@ -56,6 +56,8 @@ class Plan:
     timeline: Timeline | None = None
     day_rate: float = 0.0
     warnings: list = field(default_factory=list)
+    transfer_hours: float = 0.0
+    bandwidth_mbps: float = 0.0
 
 
 def parse_date(text: str) -> date:
@@ -85,6 +87,13 @@ def assign_sizes(findings, sizes):
     return out
 
 
+def transfer_hours(gb: float, mbps: float, efficiency: float = 0.7) -> float:
+    """Wall-clock hours to move gb over a link of mbps, assuming only part of the link is usable."""
+    if gb <= 0 or mbps <= 0:
+        return 0.0
+    return round(gb * 8000 / (mbps * efficiency) / 3600, 1)
+
+
 def size_warnings(findings, sizes):
     """Messages for sizes that name nothing the scan found, so they do not vanish silently."""
     used = {c for f in findings.values() if (c := f.service.data)}
@@ -106,7 +115,8 @@ def lockin_label(score: int) -> str:
 
 
 def make_plan(result, sizes=None, monthly_bill=0.0, parallel_months=1.0,
-              commitment=0.0, day_rate=400.0, notice: date | None = None) -> Plan:
+              commitment=0.0, day_rate=400.0, notice: date | None = None,
+              bandwidth_mbps=500.0) -> Plan:
     sizes = sizes or {}
     plan = Plan(day_rate=day_rate, commitment=commitment)
     plan.services = sorted(result.findings.values(), key=lambda f: (-f.service.lockin, f.service_key))
@@ -133,6 +143,8 @@ def make_plan(result, sizes=None, monthly_bill=0.0, parallel_months=1.0,
         plan.lockin_score = round(100 * sum((f.service.lockin - 1) / 2 for f in plan.services) / len(plan.services))
     plan.lockin_label = lockin_label(plan.lockin_score)
     plan.timeline = build_timeline(notice) if notice else None
+    plan.bandwidth_mbps = bandwidth_mbps
+    plan.transfer_hours = transfer_hours(sum(by_service.values()), bandwidth_mbps)
     return plan
 
 

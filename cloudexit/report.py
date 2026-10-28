@@ -26,6 +26,9 @@ LABELS = {
         "total": "Cost picture",
         "tcols": "| Item | Low | High |",
         "t_egress": "Egress (from waiver/Data Act to list price)",
+        "t_egress_after": "Egress for the one-off switch (banned from {date})",
+        "hours": "Transfer time for {gb:,.0f} GB at {mbps:g} Mbit/s (70% usable): about {h} hours. Plan the last delta sync inside that window.",
+        "sizehelp": "Find your sizes: `aws s3 ls --summarize --human-readable --recursive s3://BUCKET`, `gcloud storage du -s gs://BUCKET`, Azure Storage Explorer (Calculate size); databases: allocated storage in the console.",
         "t_eng": "Engineering effort ({lo}-{hi} days at {rate}/day)",
         "t_par": "Parallel running of the old environment",
         "t_commit": "Remaining commitment / early-termination fee",
@@ -58,6 +61,9 @@ LABELS = {
         "total": "Imaginea costurilor",
         "tcols": "| Element | Minim | Maxim |",
         "t_egress": "Trafic de ieșire (de la scutire/Actul privind datele până la prețul de listă)",
+        "t_egress_after": "Trafic de ieșire pentru mutarea unică (interzis din {date})",
+        "hours": "Timp de transfer pentru {gb:,.0f} GB la {mbps:g} Mbit/s (70% utilizabil): aproximativ {h} ore. Planificați ultima sincronizare în acest interval.",
+        "sizehelp": "Aflați dimensiunile: `aws s3 ls --summarize --human-readable --recursive s3://BUCKET`, `gcloud storage du -s gs://BUCKET`, Azure Storage Explorer (Calculate size); baze de date: spațiul alocat din consolă.",
         "t_eng": "Efort de inginerie ({lo}-{hi} zile la {rate}/zi)",
         "t_par": "Rularea în paralel a vechiului mediu",
         "t_commit": "Angajament rămas / taxă de reziliere",
@@ -97,6 +103,8 @@ def _where(f):
 
 def totals(plan, fx):
     eg_hi = sum(e.list_cost for e in plan.egress) * fx
+    if plan.timeline and plan.timeline.start_after_ban:
+        eg_hi = 0.0
     lo = plan.effort_cost[0] + plan.parallel_cost + plan.commitment
     hi = eg_hi + plan.effort_cost[1] + plan.parallel_cost + plan.commitment
     return {"egress": (0.0, eg_hi), "effort": plan.effort_cost, "parallel": plan.parallel_cost,
@@ -126,18 +134,19 @@ def to_markdown(result, plan, lang="en", fx=0.92):
             out += [""] + [f"- {L['egwaiver']}{e.waiver}" for e in plan.egress] + ["", L["egnote"].format(date=full), "", L["cash"], ""]
             t = totals(plan, fx)
             out += [f"## {L['total']}", "", L["tcols"], "|---|---|---|",
-                    f"| {L['t_egress']} | {money(t['egress'][0])} | {money(t['egress'][1])} |",
+                    f"| {L['t_egress_after'].format(date=full) if plan.timeline and plan.timeline.start_after_ban else L['t_egress']} | {money(t['egress'][0])} | {money(t['egress'][1])} |",
                     f"| {L['t_eng'].format(lo=plan.effort_days[0], hi=plan.effort_days[1], rate=money(plan.day_rate))} | {money(plan.effort_cost[0])} | {money(plan.effort_cost[1])} |"]
             if plan.parallel_cost:
                 out.append(f"| {L['t_par']} | {money(plan.parallel_cost)} | {money(plan.parallel_cost)} |")
             if plan.commitment:
                 out.append(f"| {L['t_commit']} | {money(plan.commitment)} | {money(plan.commitment)} |")
             out += [f"| **{L['t_sum']}** | **{money(t['total'][0])}** | **{money(t['total'][1])}** |", "",
-                    L["fxnote"].format(fx=fx, model=EFFORT_MODEL), ""]
+                    L["fxnote"].format(fx=fx, model=EFFORT_MODEL), "",
+                    L["hours"].format(gb=sum(e.gb for e in plan.egress), mbps=plan.bandwidth_mbps, h=plan.transfer_hours), ""]
         else:
             out += [L["unsized"], ""]
             out += [f"- {provider_name(e.provider)}: {money(e.per_tb_list * fx)}" for e in plan.egress]
-            out += ["", f"{L['egwaiver']}"] + [f"- {e.waiver}" for e in plan.egress] + [""]
+            out += ["", f"{L['egwaiver']}"] + [f"- {e.waiver}" for e in plan.egress] + ["", L["sizehelp"], ""]
             out += [L["fxnote"].format(fx=fx, model=EFFORT_MODEL), "",
                     f"Engineering effort: {plan.effort_days[0]}-{plan.effort_days[1]} days ({money(plan.effort_cost[0])}-{money(plan.effort_cost[1])} at {money(plan.day_rate)}/day).", ""]
 
@@ -183,7 +192,7 @@ def to_json(result, plan, fx=0.92):
                      for f in plan.services],
         "lockin_score": plan.lockin_score,
         "egress": [{"provider": e.provider, "gb": e.gb, "list_cost_usd": e.list_cost, "per_tb_list_usd": e.per_tb_list} for e in plan.egress],
-        "effort_days": plan.effort_days, "totals_eur": {k: v for k, v in t.items()},
+        "transfer_hours": plan.transfer_hours, "effort_days": plan.effort_days, "totals_eur": {k: v for k, v in t.items()},
         "warnings": plan.warnings, "timeline": None if not plan.timeline else {k: str(v) for k, v in vars(plan.timeline).items()},
         "risks": [{"file": f, "line": l, "resource": r, "message": m} for f, l, r, m in result.risks],
     }, indent=2, default=str)

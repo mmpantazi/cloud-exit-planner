@@ -8,13 +8,15 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from .catalog import (BICEP_NAMESPACES, CFN_NAMESPACES, ENDPOINT_RULES, KEYWORD_RULES, ENV_KEY_RULES, IMAGE_RULES, RISK_PATTERNS,
+from .catalog import (BICEP_NAMESPACES, CFN_NAMESPACES, ENDPOINT_RULES, KEYWORD_RULES, MODULE_RULES, ENV_KEY_RULES, IMAGE_RULES, RISK_PATTERNS,
                       SDK_RULES, SERVICES, TERRAFORM_RULES)
 
 SKIP_DIRS = {".git", "node_modules", ".terraform", ".venv", "venv", "__pycache__", "vendor", "dist", "build"}
 MAX_BYTES = 2_000_000
 
 RESOURCE_RE = re.compile(r'^\s*(resource|data)\s+"([A-Za-z0-9_]+)"\s+"([^"]+)"\s*\{', re.M)
+MODULE_RE = re.compile(r'^\s*module\s+"([^"]+)"\s*\{', re.M)
+SOURCE_RE = re.compile(r'\bsource\s*=\s*"([^"]+)"')
 BACKEND_RE = re.compile(r'^\s*backend\s+"(s3|azurerm|gcs)"', re.M)
 ENV_LINE_RE = re.compile(r"""^\s*(?:-\s*)?(?:export\s+)?["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*[=:]\s*(.*)$""")
 IMAGE_LINE_RE = re.compile(r"^\s*image:\s*[\"']?([^\s\"'#]+)")
@@ -116,6 +118,16 @@ def scan_terraform(result, path, rel, text):
                     result.risks.append((rel, line, f"{rtype}.{name}", message))
         else:
             result.add(key, rel, line, "terraform-data", f"data.{rtype}.{name}", 0)
+    for m in MODULE_RE.finditer(text):
+        src = SOURCE_RE.search(_block_body(text, m.start()))
+        hit = _first_rule(MODULE_RULES, src.group(1)) if src else None
+        if not hit:
+            continue
+        provider, key = hit
+        if key is None:
+            result.providers.add(provider)
+        else:
+            result.add(key, rel, _lineno(text, m.start()), "terraform-module", f"module.{m.group(1)} ({src.group(1)})")
     for m in BACKEND_RE.finditer(text):
         result.state_backends.add(m.group(1))
 

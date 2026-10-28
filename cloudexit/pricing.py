@@ -33,3 +33,20 @@ def list_price(provider: str, gb: float) -> float:
         cost += (top - floor) * rate
         floor = upper if upper is not None else billable
     return round(cost, 2)
+
+
+def apply_overrides(data: dict) -> None:
+    """Replace prices from a user file: {"aws": {"free_gb": 100, "tiers": [[10240, 0.09], [null, 0.05]]}}."""
+    for provider, spec in data.items():
+        if provider not in TIERS:
+            raise ValueError(f"unknown provider '{provider}' (use {', '.join(TIERS)})")
+        tiers = spec.get("tiers")
+        if tiers is not None:
+            if not tiers or tiers[-1][0] is not None or any(t[0] is None for t in tiers[:-1]):
+                raise ValueError(f"{provider}: tiers must end with one open-ended tier [null, price]")
+            bounds = [t[0] for t in tiers[:-1]]
+            if bounds != sorted(bounds):
+                raise ValueError(f"{provider}: tier limits must be increasing")
+            TIERS[provider] = [(None if up is None else float(up), float(rate)) for up, rate in tiers]
+        if "free_gb" in spec:
+            FREE_GB[provider] = float(spec["free_gb"])

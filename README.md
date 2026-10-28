@@ -22,15 +22,28 @@ Or `pip install .` and run `cloudexit PATH`.
 | `--commitment EUR` | Remaining committed spend or early-termination fee. These are not covered by the Data Act ban, so they are listed separately. |
 | `--day-rate EUR` | Engineering cost per day (default 400). |
 | `--notice-date YYYY-MM-DD` | When you plan to send the switching request (default today). |
+| `--bandwidth-mbps N` | Usable link speed for the transfer-time estimate (default 500; 70% of it is assumed usable). |
+| `--prices FILE` | JSON file overriding egress prices, for example `{"aws": {"free_gb": 100, "tiers": [[10240, 0.09], [null, 0.05]]}}` (tier limits in GB, last tier open-ended `null`; providers `aws`, `azure`, `gcp`). |
 | `--fx` | USD to EUR for egress prices (default 0.92). |
 | `--letter` | Print a draft switching-request letter for each provider (fill in the `[brackets]`), instead of the report. |
 | `--lang en\|ro`, `--format md\|json`, `-o FILE` | Output controls. |
+
+## Finding your data sizes
+
+The tool never guesses volumes. Typical ways to get them:
+
+- S3: `aws s3 ls --summarize --human-readable --recursive s3://BUCKET` (or the CloudWatch `BucketSizeBytes` metric for huge buckets).
+- Google Cloud Storage: `gcloud storage du -s gs://BUCKET`.
+- Azure Storage: Storage Explorer, "Calculate size" on the container.
+- Databases: allocated storage in the console (RDS, Cloud SQL, Azure SQL) or `pg_database_size`.
+
+Add up everything that must leave and pass it as `--size storage=GB --size database=GB`.
 
 ## What it reports
 
 1. **Services in use** with a lock-in level (portable / moderate / proprietary), where each was found, and a 0-100 lock-in score.
 2. **Egress** under three regimes: list price, the provider's leave-waiver (AWS, Azure, Google Cloud), and after 12 January 2027 when the Data Act bans switching charges for the one-off move (parallel-use traffic can still be charged at cost).
-3. **Cost picture**: egress range, engineering effort range, parallel running, commitments.
+3. **Cost picture**: egress range (zero for the one-off switch if your start date is on or after 12 January 2027), engineering effort range, parallel running, commitments, plus the transfer time for your data volume.
 4. **Timing**: notice (max two months), 30-day transition (up to 7 months if the provider proves it infeasible), 30-day retrieval period, and the earliest notice date that makes the switch start on or after 12 January 2027.
 5. **Things that make exit harder**: archive storage classes, customer-managed KMS keys, multi-AZ databases.
 6. **Checklist** in six phases plus service-specific porting steps and EU-friendly target ideas.
@@ -38,6 +51,7 @@ Or `pip install .` and run `cloudexit PATH`.
 ## What it recognises
 
 - CloudFormation (`AWS::Service::Type`), Bicep/ARM (`Microsoft.Service/type`), Kubernetes/Helm YAML (EBS/Azure disk/GCE storage classes, load-balancer and IAM annotations), `serverless.yml` with `provider: aws`, found in any `.yml/.yaml/.bicep/.template` file.
+- Terraform `module` blocks from the public registries (`terraform-aws-modules/*`, `Azure/*`, `terraform-google-modules/*`); local modules are scanned as ordinary files in the folder.
 - Terraform `.tf` resources for AWS, Azure and Google (comments ignored, `count` honoured) and `.tfstate` (resource types only).
 - `Dockerfile*` `FROM` and `ENV`, compose `image:` and environment entries, `.env*` files: provider key names and endpoint hosts (RDS, S3, Blob, Cloud SQL, ...).
 - `requirements*.txt` and `package.json` SDK dependencies (boto3, `@azure/*`, `@google-cloud/*`, firebase).

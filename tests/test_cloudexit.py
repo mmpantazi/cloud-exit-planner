@@ -5,10 +5,11 @@ import unittest
 from datetime import date
 
 from cloudexit.cli import main, parse_sizes
-from cloudexit.estimate import add_months, build_timeline, make_plan
+from cloudexit.estimate import add_months, build_timeline, make_plan, transfer_hours
 from cloudexit.letter import drafts
+from cloudexit import pricing
 from cloudexit.pricing import list_price
-from cloudexit.report import to_json, to_markdown
+from cloudexit.report import to_json, to_markdown, totals
 from cloudexit.scanner import scan
 
 DEMO = os.path.join(os.path.dirname(__file__), "..", "examples", "demo")
@@ -111,7 +112,50 @@ class TemplateScannerTests(unittest.TestCase):
         self.assertEqual(scan(project({"ci.yml": "name: build\non: push\njobs:\n  t:\n    runs-on: ubuntu-latest\n"})).findings, {})
 
 
+class ModuleTests(unittest.TestCase):
+    def test_registry_modules(self):
+        tf = """
+module "bucket" {
+  source  = "terraform-aws-modules/s3-bucket/aws"
+  version = "4.0"
+}
+module "db" { source = "terraform-aws-modules/rds/aws" }
+module "net" { source = "terraform-aws-modules/vpc/aws" }
+module "aks" { source = "Azure/aks/azurerm" }
+module "gcs" { source = "terraform-google-modules/cloud-storage/google" }
+module "local" { source = "./modules/thing" }
+"""
+        r = scan(project({"m.tf": tf}))
+        self.assertEqual(set(r.findings), {"aws_s3", "aws_rds", "az_aks_vm", "gcp_gcs"})
+        self.assertEqual(r.providers, {"aws", "azure", "gcp"})
+
+
 class PricingTests(unittest.TestCase):
+    def tearDown(self):
+        pricing.TIERS["aws"] = [(10_240, 0.09), (51_200, 0.085), (153_600, 0.07), (None, 0.05)]
+        pricing.FREE_GB["aws"] = 100
+
+    def test_override(self):
+        pricing.apply_overrides({"aws": {"free_gb": 0, "tiers": [[None, 0.02]]}})
+        self.assertAlmostEqual(list_price("aws", 1000), 20.0)
+
+    def test_override_validation(self):
+        with self.assertRaises(ValueError):
+            pricing.apply_overrides({"oracle": {}})
+        with self.assertRaises(ValueError):
+            pricing.apply_overrides({"aws": {"tiers": [[100, 0.1]]}})
+        with self.assertRaises(ValueError):
+            pricing.apply_overrides({"aws": {"tiers": [[500, 0.1], [100, 0.09], [None, 0.05]]}})
+
+    def test_cli_prices_file_errors(self):
+        bad = os.path.join(tempfile.mkdtemp(), "p.json")
+        with open(bad, "w") as fh:
+            fh.write("{not json")
+        with self.assertRaises(SystemExit):
+            main([DEMO, "--prices", bad])
+        with self.assertRaises(SystemExit):
+            main([DEMO, "--prices", "/nonexistent.json"])
+
     def test_free_allowance(self):
         self.assertEqual(list_price("aws", 100), 0)
 
@@ -160,7 +204,23 @@ class EstimateTests(unittest.TestCase):
         self.assertGreater(many.effort_days[1], one.effort_days[1])
 
 
+class TransferTests(unittest.TestCase):
+    def test_hours(self):
+        self.assertEqual(transfer_hours(1000, 1000), round(1000 * 8000 / 700 / 3600, 1))
+        self.assertEqual(transfer_hours(0, 1000), 0.0)
+        self.assertEqual(transfer_hours(10, 0), 0.0)
+
+
 class ReportTests(unittest.TestCase):
+    def test_after_ban_egress_is_zero(self):
+        r = scan(DEMO)
+        late = make_plan(r, {"storage": 5000}, notice=date(2026, 12, 1))
+        early = make_plan(r, {"storage": 5000}, notice=date(2026, 10, 28))
+        self.assertEqual(totals(late, 0.92)["egress"][1], 0)
+        self.assertGreater(totals(early, 0.92)["egress"][1], 0)
+        self.assertIn("banned from", to_markdown(r, late))
+        self.assertIn("hours", to_markdown(r, late))
+
     def setUp(self):
         self.result = scan(DEMO)
         self.plan = make_plan(self.result, {"storage": 2000}, monthly_bill=1000, notice=date(2026, 10, 28))

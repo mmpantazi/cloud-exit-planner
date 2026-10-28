@@ -1,10 +1,12 @@
 import argparse
+import json
 import os
 import sys
 from datetime import date
 
 from .checklist import LANGS
 from .letter import drafts
+from . import pricing
 from .estimate import make_plan, parse_date
 from .report import to_json, to_markdown
 from .scanner import scan
@@ -33,6 +35,8 @@ def build_parser():
     p.add_argument("--commitment", type=float, default=0.0, metavar="EUR", help="remaining committed spend or early-termination fee")
     p.add_argument("--day-rate", type=float, default=400.0, metavar="EUR", help="engineering cost per day (default 400)")
     p.add_argument("--fx", type=float, default=0.92, help="USD to EUR rate for egress prices (default 0.92)")
+    p.add_argument("--bandwidth-mbps", type=float, default=500.0, help="usable link speed for the transfer-time estimate (default 500)")
+    p.add_argument("--prices", metavar="FILE", help="JSON file that overrides egress prices, see README")
     p.add_argument("--notice-date", metavar="YYYY-MM-DD", help="day you plan to send the switching request (default: today)")
     p.add_argument("--today", metavar="YYYY-MM-DD", help=argparse.SUPPRESS)
     p.add_argument("--lang", choices=LANGS, default="en", help="report language (en, ro)")
@@ -50,10 +54,16 @@ def main(argv=None):
     except ValueError:
         raise SystemExit("dates must look like 2026-12-01")
     sizes = parse_sizes(args.size)
+    if args.prices:
+        try:
+            with open(args.prices, encoding="utf-8") as fh:
+                pricing.apply_overrides(json.load(fh))
+        except (OSError, ValueError, TypeError, AttributeError, IndexError) as exc:
+            raise SystemExit(f"--prices {args.prices}: {exc}")
     if not os.path.exists(args.path):
         raise SystemExit(f"path not found: {args.path}")
     result = scan(args.path)
-    plan = make_plan(result, sizes, args.monthly_bill, args.parallel_months, args.commitment, args.day_rate, notice)
+    plan = make_plan(result, sizes, args.monthly_bill, args.parallel_months, args.commitment, args.day_rate, notice, args.bandwidth_mbps)
     if args.letter:
         if not plan.services:
             raise SystemExit("no provider services found, nothing to write a letter about")
