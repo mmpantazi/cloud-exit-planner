@@ -1,0 +1,10 @@
+services:
+  app:
+    image: 123456789012.dkr.ecr.eu-central-1.amazonaws.com/acme/app:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=AKIAEXAMPLEEXAMPLE1
+      - DATABASE_URL=postgres://u:supersecret@main.abc.eu-central-1.rds.amazonaws.com/app
+  db:
+    image: postgres:16
+  cache:
+    image: redis:7

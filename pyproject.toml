@@ -1,0 +1,12 @@
+[project]
+name = "cloudexit"
+version = "0.1.0"
+description = "Plan an exit from a cloud vendor from your Terraform, Docker, compose and env files"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[project.scripts]
+cloudexit = "cloudexit.cli:main"
+
+[tool.setuptools]
+packages = ["cloudexit"]
