@@ -6,7 +6,11 @@ from .checklist import PHASES, TEXT, phase_steps
 from .estimate import provider_name
 from .pricing import AS_OF, DATA_ACT_FULL_DATE
 
-LOCKIN_WORD = {1: "portable", 2: "moderate", 3: "proprietary"}
+LOCKIN_WORD = {
+    "en": {1: "portable", 2: "moderate", 3: "proprietary"},
+    "ro": {1: "portabil", 2: "moderat", 3: "proprietar"},
+}
+LEVEL_WORD = {"en": {"low": "low", "medium": "medium", "high": "high"}, "ro": {"low": "mic", "medium": "mediu", "high": "mare"}}
 LABELS = {
     "en": {
         "scanned": "Scanned {n} files in `{root}`. Providers detected: {providers}.",
@@ -48,7 +52,7 @@ LABELS = {
         "unsized": "Nu s-au dat dimensiuni de date, deci nu se calculează un total. Folosiți `--size storage=500 --size database=80` (GB). Costul mutării a 1 TB la preț de listă:",
         "egcols": "| Furnizor | Date (GB) | Preț de listă | Scutire la plecare | După {date} |",
         "egwaiver": "Condiții de scutire: ",
-        "egnote": "Prețul de listă este costul unui descărcări obișnuite. Coloana de scutire presupune că îndepliniți condițiile furnizorului. Din {date} Actul privind datele interzice taxele pentru mutarea unică, dar traficul din timpul utilizării în paralel poate fi taxat la cost.",
+        "egnote": "Prețul de listă este costul unei descărcări obișnuite. Coloana de scutire presupune că îndepliniți condițiile furnizorului. Din {date} Actul privind datele interzice taxele pentru mutarea unică, dar traficul din timpul utilizării în paralel poate fi taxat la cost.",
         "total": "Imaginea costurilor",
         "tcols": "| Element | Minim | Maxim |",
         "t_egress": "Trafic de ieșire (de la scutire/Actul privind datele până la prețul de listă)",
@@ -101,8 +105,8 @@ def to_markdown(result, plan, lang="en", fx=0.92):
     else:
         out += [f"## {L['services']}", "", L["cols"], "|---|---|---|---|"]
         for f in plan.services:
-            out.append(f"| {f.service.name} | {LOCKIN_WORD[f.service.lockin]} | {max(f.resources, len(f.evidence) if f.resources == 0 else f.resources)} | {_where(f)} |")
-        out += ["", L["lockin"].format(score=plan.lockin_score, label=plan.lockin_label), ""]
+            out.append(f"| {f.service.name} | {LOCKIN_WORD[lang][f.service.lockin]} | {max(f.resources, len(f.evidence) if f.resources == 0 else f.resources)} | {_where(f)} |")
+        out += ["", L["lockin"].format(score=plan.lockin_score, label=LEVEL_WORD[lang][plan.lockin_label]), ""]
 
         out += [f"## {L['egress']}", ""]
         if plan.sized:
